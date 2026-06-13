@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NotificationsTab extends StatefulWidget {
   const NotificationsTab({super.key});
@@ -12,228 +12,328 @@ class NotificationsTab extends StatefulWidget {
 }
 
 class _NotificationsTabState extends State<NotificationsTab> {
-  final _formKey = GlobalKey<FormState>();
-  final _titleController = TextEditingController();
-  final _messageController = TextEditingController();
-  final _urlController =
-      TextEditingController(); // رابط اختياري (مثل رابط المتجر للتحديث)
+  // متحكمات الإشعار العام
+  final _allTitleCtrl = TextEditingController();
+  final _allMessageCtrl = TextEditingController();
+  bool _isSendingAll = false;
 
-  bool _isLoading = false;
+  // متحكمات الإشعار المخصص
+  final _targetEmailCtrl = TextEditingController();
+  final _targetTitleCtrl = TextEditingController();
+  final _targetMessageCtrl = TextEditingController();
+  bool _isSendingTarget = false;
 
   @override
   void dispose() {
-    _titleController.dispose();
-    _messageController.dispose();
-    _urlController.dispose();
+    _allTitleCtrl.dispose();
+    _allMessageCtrl.dispose();
+    _targetEmailCtrl.dispose();
+    _targetTitleCtrl.dispose();
+    _targetMessageCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _sendNotification() async {
-    if (!_formKey.currentState!.validate()) return;
+  // 🚀 دالة إرسال الإشعار عبر OneSignal API
+  Future<void> _sendPushNotification({
+    required String title,
+    required String message,
+    String? targetUserId, // إذا كان null، يُرسل للجميع
+  }) async {
+    // ⬅️ قراءة المفاتيح من بيئة البناء مباشرة (أمان تام)
+    const appId = String.fromEnvironment('ONESIGNAL_APP_ID');
+    const restApiKey = String.fromEnvironment('ONESIGNAL_REST_API_KEY');
 
-    final appId = dotenv.env['ONESIGNAL_APP_ID'];
-    final restApiKey = dotenv.env['ONESIGNAL_REST_API_KEY'];
+    if (appId.isEmpty || restApiKey.isEmpty) {
+      throw Exception('مفاتيح OneSignal غير متوفرة في بيئة البناء.');
+    }
 
-    if (appId == null ||
-        restApiKey == null ||
-        appId.isEmpty ||
-        restApiKey.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('خطأ: مفاتيح OneSignal غير موجودة في ملف .env',
-              textAlign: TextAlign.right),
-          backgroundColor: Colors.red,
-        ),
-      );
+    final Map<String, dynamic> payload = {
+      "app_id": appId,
+      "headings": {"en": title, "ar": title},
+      "contents": {"en": message, "ar": message},
+    };
+
+    if (targetUserId != null) {
+      // إرسال لمستخدم محدد عبر الـ ID الخاص به في Supabase
+      payload["include_external_user_ids"] = [targetUserId];
+    } else {
+      // إرسال للجميع
+      payload["included_segments"] = ["All"];
+    }
+
+    final response = await http.post(
+      Uri.parse('https://onesignal.com/api/v1/notifications'),
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': 'Basic $restApiKey',
+      },
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('فشل الإرسال: ${response.body}');
+    }
+  }
+
+  // 📢 معالج الإرسال للجميع
+  Future<void> _handleSendToAll() async {
+    if (_allTitleCtrl.text.isEmpty || _allMessageCtrl.text.isEmpty) {
+      _showSnackBar('يرجى تعبئة العنوان والرسالة', Colors.orange);
       return;
     }
 
-    setState(() => _isLoading = true);
-
+    setState(() => _isSendingAll = true);
     try {
-      final response = await http.post(
-        Uri.parse('https://onesignal.com/api/v1/notifications'),
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Authorization': 'Basic $restApiKey',
-        },
-        body: jsonEncode({
-          'app_id': appId,
-          'included_segments': ['All'], // ⬅️ إرسال لجميع المستخدمين
-          'headings': {
-            'en': _titleController.text,
-            'ar': _titleController.text
-          },
-          'contents': {
-            'en': _messageController.text,
-            'ar': _messageController.text
-          },
-          if (_urlController.text.isNotEmpty)
-            'url': _urlController.text, // ⬅️ رابط عند الضغط على الإشعار
-        }),
+      await _sendPushNotification(
+        title: _allTitleCtrl.text.trim(),
+        message: _allMessageCtrl.text.trim(),
+      );
+      _showSnackBar(
+          'تم إرسال الإشعار لجميع المستخدمين بنجاح! 🚀', Colors.green);
+      _allTitleCtrl.clear();
+      _allMessageCtrl.clear();
+    } catch (e) {
+      _showSnackBar(e.toString(), Colors.red);
+    } finally {
+      setState(() => _isSendingAll = false);
+    }
+  }
+
+  // 🎯 معالج الإرسال لمستخدم محدد (المسيء)
+  Future<void> _handleSendToTarget() async {
+    final email = _targetEmailCtrl.text.trim();
+    if (email.isEmpty ||
+        _targetTitleCtrl.text.isEmpty ||
+        _targetMessageCtrl.text.isEmpty) {
+      _showSnackBar('يرجى تعبئة الإيميل، العنوان، والرسالة', Colors.orange);
+      return;
+    }
+
+    setState(() => _isSendingTarget = true);
+    try {
+      // 1. البحث عن المستخدم في Supabase بواسطة الإيميل
+      final userRes = await Supabase.instance.client
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle();
+
+      if (userRes == null) {
+        throw Exception('لم يتم العثور على مستخدم بهذا البريد الإلكتروني.');
+      }
+
+      final targetUserId = userRes['id'];
+
+      // 2. إرسال الإشعار لهذا المستخدم فقط
+      await _sendPushNotification(
+        title: _targetTitleCtrl.text.trim(),
+        message: _targetMessageCtrl.text.trim(),
+        targetUserId: targetUserId,
       );
 
-      if (mounted) {
-        if (response.statusCode == 200) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تم إرسال الإشعار لجميع المستخدمين بنجاح! 🚀',
-                  textAlign: TextAlign.right),
-              backgroundColor: Colors.green,
-            ),
-          );
-          // تفريغ الحقول بعد النجاح
-          _titleController.clear();
-          _messageController.clear();
-          _urlController.clear();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('فشل إرسال الإشعار: ${response.body}',
-                  textAlign: TextAlign.right),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
+      _showSnackBar('تم إرسال الإشعار للمستخدم بنجاح! 🎯', Colors.green);
+      _targetEmailCtrl.clear();
+      _targetTitleCtrl.clear();
+      _targetMessageCtrl.clear();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                Text('حدث خطأ أثناء الاتصال: $e', textAlign: TextAlign.right),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      _showSnackBar(e.toString(), Colors.red);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      setState(() => _isSendingTarget = false);
     }
+  }
+
+  void _showSnackBar(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content: Text(message, textAlign: TextAlign.right),
+          backgroundColor: color),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Container(
-          width: 600, // عرض ثابت لتبدو كبطاقة أنيقة
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
-                  blurRadius: 15,
-                  spreadRadius: 5)
-            ],
-          ),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.campaign, size: 80, color: Colors.blueGrey),
-                const SizedBox(height: 16),
-                const Text(
-                  'إرسال إشعار للجميع (Broadcast)',
-                  style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blueGrey),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'سيصل هذا الإشعار إلى جميع هواتف المستخدمين (حرفيين وعملاء) فوراً.',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 32),
-
-                // 📝 حقل العنوان
-                Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: TextFormField(
-                    controller: _titleController,
-                    decoration: const InputDecoration(
-                      labelText: 'عنوان الإشعار (مثال: تحديث جديد متاح!)',
-                      prefixIcon: Icon(Icons.title),
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) =>
-                        value!.isEmpty ? 'يرجى كتابة عنوان الإشعار' : null,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 📝 حقل النص
-                Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: TextFormField(
-                    controller: _messageController,
-                    maxLines: 4,
-                    decoration: const InputDecoration(
-                      labelText:
-                          'نص الإشعار (مثال: يرجى تحديث التطبيق للاستفادة من الميزات الجديدة)',
-                      prefixIcon: Padding(
-                        padding:
-                            EdgeInsets.only(bottom: 60), // لرفع الأيقونة للأعلى
-                        child: Icon(Icons.message),
-                      ),
-                      border: OutlineInputBorder(),
-                    ),
-                    validator: (value) =>
-                        value!.isEmpty ? 'يرجى كتابة نص الإشعار' : null,
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // 🔗 حقل الرابط (اختياري)
-                Directionality(
-                  textDirection: TextDirection.rtl,
-                  child: TextFormField(
-                    controller: _urlController,
-                    decoration: const InputDecoration(
-                      labelText:
-                          'رابط التوجيه (اختياري - مثال: رابط متجر جوجل بلاي)',
-                      prefixIcon: Icon(Icons.link),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-
-                // 🚀 زر الإرسال
-                SizedBox(
-                  width: double.infinity,
-                  height: 55,
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueGrey,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8)),
-                    ),
-                    onPressed: _isLoading ? null : _sendNotification,
-                    icon: _isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                                color: Colors.white, strokeWidth: 2))
-                        : const Icon(Icons.send),
-                    label: Text(
-                      _isLoading ? 'جاري الإرسال...' : 'إرسال الإشعار الآن',
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ),
-              ],
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24.0),
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'مركز الإشعارات والتنبيهات 🔔',
+              style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blueGrey),
             ),
-          ),
+            const SizedBox(height: 24),
+
+            // ==========================================
+            // 🟦 بطاقة الإرسال للجميع (تحديثات، أخبار)
+            // ==========================================
+            Card(
+              elevation: 4,
+              color: Colors.blue.shade50,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.blue.shade200)),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.campaign,
+                            color: Colors.blue.shade700, size: 30),
+                        const SizedBox(width: 10),
+                        Text('إشعار عام (لجميع المستخدمين)',
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade800)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'يستخدم لإرسال التحديثات، الأخبار، أو العروض لجميع من يمتلك التطبيق.',
+                        style: TextStyle(color: Colors.black54)),
+                    const SizedBox(height: 20),
+                    _buildTextField(
+                        controller: _allTitleCtrl,
+                        label: 'عنوان الإشعار',
+                        icon: Icons.title),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                        controller: _allMessageCtrl,
+                        label: 'نص الرسالة',
+                        icon: Icons.message,
+                        maxLines: 3),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSendingAll ? null : _handleSendToAll,
+                        icon: _isSendingAll
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Icon(Icons.send),
+                        label: Text(_isSendingAll
+                            ? 'جاري الإرسال...'
+                            : 'إرسال للجميع الآن'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade700,
+                            foregroundColor: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // ==========================================
+            // 🟧 بطاقة الإرسال المخصص (إنذار مسيء)
+            // ==========================================
+            Card(
+              elevation: 4,
+              color: Colors.orange.shade50,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.orange.shade300)),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded,
+                            color: Colors.orange.shade800, size: 30),
+                        const SizedBox(width: 10),
+                        Text('إنذار مخصص (الرد على مسيء)',
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.orange.shade900)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'يستخدم لإرسال تنبيه أو إنذار لمستخدم محدد بناءً على بريده الإلكتروني.',
+                        style: TextStyle(color: Colors.black54)),
+                    const SizedBox(height: 20),
+                    _buildTextField(
+                        controller: _targetEmailCtrl,
+                        label: 'البريد الإلكتروني للمستخدم',
+                        icon: Icons.email,
+                        isEmail: true),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                        controller: _targetTitleCtrl,
+                        label: 'عنوان الإنذار',
+                        icon: Icons.title),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                        controller: _targetMessageCtrl,
+                        label: 'نص الإنذار',
+                        icon: Icons.message,
+                        maxLines: 3),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed:
+                            _isSendingTarget ? null : _handleSendToTarget,
+                        icon: _isSendingTarget
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Icon(Icons.send_and_archive),
+                        label: Text(_isSendingTarget
+                            ? 'جاري الإرسال...'
+                            : 'إرسال الإنذار للمستخدم'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.orange.shade800,
+                            foregroundColor: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+
+  // 🎨 دالة مساعدة لبناء حقول الإدخال بشكل أنيق
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    int maxLines = 1,
+    bool isEmail = false,
+  }) {
+    return TextField(
+      controller: controller,
+      maxLines: maxLines,
+      keyboardType: isEmail ? TextInputType.emailAddress : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Colors.blueGrey),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: const BorderSide(color: Colors.blueGrey, width: 2)),
       ),
     );
   }

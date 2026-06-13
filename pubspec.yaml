@@ -1,3 +1,4 @@
+#file: noinspection YAMLSchemaValidation
 name: elhirafi_admin
 description: Admin Dashboard for Elhirafi App.
 publish_to: 'none'
@@ -26,4 +27,3 @@ flutter:
 
   # تعريف مسار ملف المفاتيح السرية
   assets:
-    - .env

@@ -1,6 +1,5 @@
 import 'package:elhirafi_admin/screens/login_screen.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // استيراد شاشة لوحة التحكم
@@ -9,11 +8,17 @@ import 'screens/dashboard_screen.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: ".env");
+  // ⬅️ قراءة المفاتيح من بيئة البناء مباشرة (أمان تام)
+  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
+  const supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
+
+  if (supabaseUrl.isEmpty || supabaseAnonKey.isEmpty) {
+    debugPrint('⚠️ تحذير: مفاتيح Supabase غير متوفرة في بيئة البناء!');
+  }
 
   await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL'] ?? '',
-    publishableKey: dotenv.env['SUPABASE_ANON_KEY'] ?? '',
+    url: supabaseUrl,
+    publishableKey: supabaseAnonKey,
   );
 
   runApp(const AdminDashboardApp());
