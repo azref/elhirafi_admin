@@ -36,8 +36,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('خطأ في تسجيل الدخول: تأكد من صحة البيانات',
+          SnackBar(
+            content: Text('الخطأ الحقيقي: ${e.toString()}',
                 textAlign: TextAlign.right),
             backgroundColor: Colors.red,
           ),

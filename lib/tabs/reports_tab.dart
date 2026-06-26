@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ReportsTab extends StatefulWidget {
-  const ReportsTab({super.key});
+  final Function(String)? onContactUser;
+
+  const ReportsTab({super.key, this.onContactUser});
 
   @override
   State<ReportsTab> createState() => _ReportsTabState();
@@ -13,10 +15,22 @@ class _ReportsTabState extends State<ReportsTab> {
   Map<String, String> _userNames = {};
   bool _isLoading = true;
 
+  // ⬅️ إضافة متحكمات التمرير للاتجاهين
+  final ScrollController _verticalScroll = ScrollController();
+  final ScrollController _horizontalScroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _fetchData();
+  }
+
+  @override
+  void dispose() {
+    // ⬅️ تنظيف المتحكمات لتجنب تسريب الذاكرة
+    _verticalScroll.dispose();
+    _horizontalScroll.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchData() async {
@@ -85,82 +99,7 @@ class _ReportsTabState extends State<ReportsTab> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_reports.isEmpty)
-      return const Center(
-          child: Text('لا توجد بلاغات حالياً. التطبيق آمن! 🎉',
-              style: TextStyle(fontSize: 20, color: Colors.green)));
-
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Directionality(
-          textDirection: TextDirection.rtl,
-          child: ListView(
-            children: [
-              PaginatedDataTable(
-                header: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('قائمة البلاغات الأخيرة',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blueGrey)),
-                    IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.blue),
-                        onPressed: _fetchData,
-                        tooltip: 'تحديث'),
-                  ],
-                ),
-                rowsPerPage: _reports.length > 10
-                    ? 10
-                    : (_reports.isEmpty ? 1 : _reports.length),
-                columns: const [
-                  DataColumn(label: Text('التاريخ')),
-                  DataColumn(label: Text('إيميل المُبلِّغ (الضحية)')),
-                  DataColumn(label: Text('إيميل المُبلَّغ عنه (المسيء)')),
-                  DataColumn(label: Text('السبب')),
-                  DataColumn(label: Text('التفاصيل')),
-                  DataColumn(label: Text('الحالة')),
-                  DataColumn(label: Text('الإجراءات')),
-                ],
-                source: _ReportDataSource(
-                  reports: _reports,
-                  userNames: _userNames,
-                  onBan: _banUser,
-                  onDismiss: _dismissReport,
-                  onRefresh: _fetchData,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ReportDataSource extends DataTableSource {
-  final List<dynamic> reports;
-  final Map<String, String> userNames;
-  final Function(String, String) onBan;
-  final Function(String) onDismiss;
-  final VoidCallback onRefresh;
-
-  _ReportDataSource({
-    required this.reports,
-    required this.userNames,
-    required this.onBan,
-    required this.onDismiss,
-    required this.onRefresh,
-  });
-
-  Future<void> _unbanUser(
-      BuildContext context, String userId, String reportId) async {
+  Future<void> _unbanUser(String userId, String reportId) async {
     try {
       final supabase = Supabase.instance.client;
       await supabase
@@ -169,7 +108,7 @@ class _ReportDataSource extends DataTableSource {
       await supabase
           .from('reports')
           .update({'status': 'unbanned'}).eq('id', reportId);
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
               content: Text('تم رفع الحظر عن المستخدم بنجاح ✅',
@@ -177,9 +116,9 @@ class _ReportDataSource extends DataTableSource {
               backgroundColor: Colors.green),
         );
       }
-      onRefresh();
+      _fetchData();
     } catch (e) {
-      if (context.mounted) {
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('حدث خطأ أثناء رفع الحظر: $e',
@@ -191,87 +130,196 @@ class _ReportDataSource extends DataTableSource {
   }
 
   @override
-  DataRow? getRow(int index) {
-    if (index >= reports.length) return null;
-    final report = reports[index];
-
-    final date = DateTime.parse(report['created_at']).toLocal();
-    final formattedDate = '${date.year}/${date.month}/${date.day}';
-
-    final reporterName = userNames[report['reporter_id']] ?? 'مجهول';
-    final reportedName = userNames[report['reported_user_id']] ?? 'مجهول';
-    final status = report['status'] ?? 'pending';
-
-    Widget statusWidget;
-    if (status == 'banned') {
-      statusWidget = _buildStatusBadge('تم الحظر', Colors.red);
-    } else if (status == 'dismissed') {
-      statusWidget = _buildStatusBadge('تم التجاهل', Colors.grey);
-    } else if (status == 'unbanned') {
-      statusWidget = _buildStatusBadge('رُفع الحظر', Colors.blue);
-    } else {
-      statusWidget = _buildStatusBadge('معلق', Colors.orange);
+  Widget build(BuildContext context) {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_reports.isEmpty) {
+      return const Center(
+          child: Text('لا توجد بلاغات حالياً. التطبيق آمن! 🎉',
+              style: TextStyle(fontSize: 20, color: Colors.green)));
     }
 
-    return DataRow(cells: [
-      DataCell(Text(formattedDate)),
-      DataCell(Tooltip(
-          message: reporterName,
-          child: SizedBox(
-              width: 150,
-              child: Text(reporterName,
-                  style: const TextStyle(color: Colors.blue),
-                  overflow: TextOverflow.ellipsis)))),
-      DataCell(Tooltip(
-          message: reportedName,
-          child: SizedBox(
-              width: 150,
-              child: Text(reportedName,
-                  style: const TextStyle(
-                      color: Colors.red, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis)))),
-      DataCell(Text(report['reason'] ?? '')),
-      DataCell(Tooltip(
-          message: report['description'] ?? 'لا يوجد',
-          child: SizedBox(
-              width: 200,
-              child: Text(report['description'] ?? 'لا يوجد',
-                  overflow: TextOverflow.ellipsis)))),
-      DataCell(statusWidget),
-      DataCell(
-        Builder(builder: (context) {
-          if (status == 'pending') {
-            return Row(
-              children: [
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white),
-                  onPressed: () =>
-                      onBan(report['reported_user_id'], report['id']),
-                  child: const Text('حظر المسيء'),
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Column(
+            children: [
+              // رأس الجدول مع زر التحديث
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0, vertical: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('قائمة البلاغات الأخيرة',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                            color: Colors.blueGrey)),
+                    IconButton(
+                        icon: const Icon(Icons.refresh, color: Colors.blue),
+                        onPressed: _fetchData,
+                        tooltip: 'تحديث'),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                OutlinedButton(
-                    onPressed: () => onDismiss(report['id']),
-                    child: const Text('تجاهل')),
-              ],
-            );
-          } else if (status == 'banned') {
-            return TextButton.icon(
-              icon: const Icon(Icons.restore, color: Colors.blue),
-              label:
-                  const Text('رفع الحظر', style: TextStyle(color: Colors.blue)),
-              onPressed: () =>
-                  _unbanUser(context, report['reported_user_id'], report['id']),
-            );
-          } else {
-            return const Text('لا يوجد إجراء',
-                style: TextStyle(color: Colors.grey));
-          }
-        }),
+              ),
+              // ⬅️ شريط السحب الدائم الظهور مع الجدول (تم ربط المتحكمات بدقة)
+              Expanded(
+                child: Scrollbar(
+                  controller: _verticalScroll, // ربط المتحكم العمودي
+                  thumbVisibility: true,
+                  trackVisibility: true,
+                  interactive: true,
+                  thickness: 8.0,
+                  radius: const Radius.circular(10),
+                  child: SingleChildScrollView(
+                    controller: _verticalScroll, // ربط المتحكم العمودي
+                    scrollDirection: Axis.vertical,
+                    physics:
+                        const AlwaysScrollableScrollPhysics(), // إجبار التمرير ليكون مرناً
+                    child: Scrollbar(
+                      controller: _horizontalScroll, // ربط المتحكم الأفقي
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      interactive: true,
+                      thickness: 10.0,
+                      radius: const Radius.circular(10),
+                      notificationPredicate: (notif) =>
+                          notif.depth == 0, // منع تداخل التمرير
+                      child: SingleChildScrollView(
+                        controller: _horizontalScroll, // ربط المتحكم الأفقي
+                        scrollDirection: Axis.horizontal,
+                        physics:
+                            const AlwaysScrollableScrollPhysics(), // إجبار التمرير ليكون مرناً
+                        child: _buildDataTable(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
-    ]);
+    );
+  }
+
+  Widget _buildDataTable() {
+    return DataTable(
+      columnSpacing: 16.0,
+      horizontalMargin: 16.0,
+      headingRowHeight: 50,
+      dataRowMaxHeight: 80,
+      dataRowMinHeight: 60,
+      columns: const [
+        DataColumn(
+            label: Text('التاريخ',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('المُبلِّغ',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('المُبلَّغ عنه',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('السبب',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('التفاصيل',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('الحالة',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        DataColumn(
+            label: Text('الإجراءات',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+      ],
+      rows: _reports.map((report) {
+        final date = DateTime.parse(report['created_at']).toLocal();
+        final formattedDate = '${date.year}/${date.month}/${date.day}';
+        final reporterName = _userNames[report['reporter_id']] ?? 'مجهول';
+        final reportedName = _userNames[report['reported_user_id']] ?? 'مجهول';
+        final status = report['status'] ?? 'pending';
+
+        Widget statusWidget;
+        if (status == 'banned') {
+          statusWidget = _buildStatusBadge('تم الحظر', Colors.red);
+        } else if (status == 'dismissed') {
+          statusWidget = _buildStatusBadge('تم التجاهل', Colors.grey);
+        } else if (status == 'unbanned') {
+          statusWidget = _buildStatusBadge('رُفع الحظر', Colors.blue);
+        } else {
+          statusWidget = _buildStatusBadge('معلق', Colors.orange);
+        }
+
+        return DataRow(cells: [
+          DataCell(Text(formattedDate, style: const TextStyle(fontSize: 12))),
+          DataCell(
+            Tooltip(
+              message: reporterName,
+              child: SizedBox(
+                width: 100,
+                child: Text(
+                  reporterName,
+                  style: const TextStyle(color: Colors.blue, fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+          DataCell(
+            Tooltip(
+              message: reportedName,
+              child: SizedBox(
+                width: 100,
+                child: Text(
+                  reportedName,
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+          DataCell(
+            SizedBox(
+              width: 80,
+              child: Text(
+                report['reason'] ?? '',
+                style: const TextStyle(fontSize: 12),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          DataCell(
+            Tooltip(
+              message: report['description'] ?? 'لا يوجد',
+              child: SizedBox(
+                width: 120,
+                child: Text(
+                  report['description'] ?? 'لا يوجد',
+                  style: const TextStyle(fontSize: 12),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+          ),
+          DataCell(statusWidget),
+          DataCell(
+            SizedBox(
+              width: 280, // عرض كافي لجميع الأزرار
+              child: _buildActionButtons(report, status, reportedName),
+            ),
+          ),
+        ]);
+      }).toList(),
+    );
   }
 
   Widget _buildStatusBadge(String text, MaterialColor color) {
@@ -279,16 +327,97 @@ class _ReportDataSource extends DataTableSource {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
           color: color[100], borderRadius: BorderRadius.circular(8)),
-      child: Text(text,
-          style: TextStyle(
-              color: color[800], fontSize: 12, fontWeight: FontWeight.bold)),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color[800],
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 
-  @override
-  bool get isRowCountApproximate => false;
-  @override
-  int get rowCount => reports.length;
-  @override
-  int get selectedRowCount => 0;
+  Widget _buildActionButtons(
+      dynamic report, String status, String reportedName) {
+    // استخدام SingleChildScrollView للتمرير الأفقي داخل الأزرار
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // الإجراءات حسب الحالة
+          if (status == 'pending') ...[
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: const Size(70, 30),
+                textStyle: const TextStyle(fontSize: 11),
+              ),
+              onPressed: () =>
+                  _banUser(report['reported_user_id'], report['id']),
+              child: const Text('حظر'),
+            ),
+            const SizedBox(width: 4),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: const Size(50, 30),
+                textStyle: const TextStyle(fontSize: 11),
+              ),
+              onPressed: () => _dismissReport(report['id']),
+              child: const Text('تجاهل'),
+            ),
+            const SizedBox(width: 4),
+          ] else if (status == 'banned') ...[
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                minimumSize: const Size(70, 30),
+              ),
+              icon: const Icon(Icons.restore, color: Colors.blue, size: 16),
+              label: const Text('رفع الحظر',
+                  style: TextStyle(color: Colors.blue, fontSize: 11)),
+              onPressed: () =>
+                  _unbanUser(report['reported_user_id'], report['id']),
+            ),
+            const SizedBox(width: 4),
+          ] else ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4.0),
+              child: Text('لا يوجد',
+                  style: TextStyle(color: Colors.grey, fontSize: 11)),
+            ),
+            const SizedBox(width: 4),
+          ],
+
+          // زر تواصل - يظهر دائماً
+          OutlinedButton.icon(
+            icon: const Icon(Icons.notifications_active,
+                color: Colors.orange, size: 16),
+            label: const Text('تواصل',
+                style: TextStyle(color: Colors.orange, fontSize: 11)),
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: Colors.orange),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              minimumSize: const Size(60, 30),
+            ),
+            onPressed: () {
+              if (widget.onContactUser != null && reportedName != 'مجهول') {
+                widget.onContactUser!(reportedName);
+              } else if (widget.onContactUser == null) {
+                // تنبيه للمطور
+                debugPrint('onContactUser غير معرف');
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -5,6 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // استيراد شاشة لوحة التحكم
 import 'screens/dashboard_screen.dart';
 
+// ⬅️ إضافة متحكم عام للثيم لسهولة الوصول إليه من أي مكان
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -18,7 +21,7 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: supabaseUrl,
-    publishableKey: supabaseAnonKey,
+    anonKey: supabaseAnonKey, // ⬅️ تم التصحيح من publishableKey إلى anonKey
   );
 
   runApp(const AdminDashboardApp());
@@ -29,14 +32,34 @@ class AdminDashboardApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'لوحة تحكم الصانع الحرفي',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blueGrey,
-        fontFamily: 'Tajawal', // يفضل إضافة خط عربي إذا أردت
-      ),
-      home: const AuthGate(),
+    // ⬅️ تغليف التطبيق بمستمع لتغيرات الثيم
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (_, ThemeMode currentMode, __) {
+        return MaterialApp(
+          title: 'لوحة تحكم الصانع الحرفي',
+          debugShowCheckedModeBanner: false,
+          themeMode: currentMode, // ⬅️ تحديد الثيم الحالي
+          theme: ThemeData(
+            primarySwatch: Colors.blueGrey,
+            fontFamily: 'Tajawal',
+            brightness: Brightness.light,
+            scaffoldBackgroundColor: Colors.grey[100],
+          ),
+          darkTheme: ThemeData(
+            primarySwatch: Colors.blueGrey,
+            fontFamily: 'Tajawal',
+            brightness: Brightness.dark,
+            scaffoldBackgroundColor: const Color(0xFF121212),
+            cardColor: const Color(0xFF1E1E1E),
+            appBarTheme: AppBarTheme(
+              backgroundColor: Colors.blueGrey[900],
+              foregroundColor: Colors.white,
+            ),
+          ),
+          home: const AuthGate(),
+        );
+      },
     );
   }
 }

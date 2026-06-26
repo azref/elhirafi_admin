@@ -1,11 +1,14 @@
 import 'dart:convert';
 
+import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NotificationsTab extends StatefulWidget {
-  const NotificationsTab({super.key});
+  final String? targetEmail; // ⬅️ استقبال الإيميل الممرر
+
+  const NotificationsTab({super.key, this.targetEmail});
 
   @override
   State<NotificationsTab> createState() => _NotificationsTabState();
@@ -24,6 +27,25 @@ class _NotificationsTabState extends State<NotificationsTab> {
   bool _isSendingTarget = false;
 
   @override
+  void initState() {
+    super.initState();
+    // ⬅️ تعبئة الحقل تلقائياً عند فتح الشاشة لأول مرة
+    if (widget.targetEmail != null) {
+      _targetEmailCtrl.text = widget.targetEmail!;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // ⬅️ تحديث الحقل فوراً إذا تم تمرير إيميل جديد أثناء وجود الشاشة مفتوحة
+    if (widget.targetEmail != oldWidget.targetEmail &&
+        widget.targetEmail != null) {
+      _targetEmailCtrl.text = widget.targetEmail!;
+    }
+  }
+
+  @override
   void dispose() {
     _allTitleCtrl.dispose();
     _allMessageCtrl.dispose();
@@ -33,39 +55,122 @@ class _NotificationsTabState extends State<NotificationsTab> {
     super.dispose();
   }
 
-  // 🚀 دالة إرسال الإشعار عبر OneSignal API
+  // 🚀 دالة قراءة وفك تشفير ملف الـ JSON من بيئة البناء
+  Future<Map<String, dynamic>> _getFcmCredentials() async {
+    const base64Json = String.fromEnvironment('FCM_JSON_BASE64');
+    if (base64Json.isEmpty) {
+      throw Exception('ملف إعدادات FCM غير متوفر في بيئة البناء.');
+    }
+
+    try {
+      final decodedBytes = base64Decode(base64Json);
+      final decodedString = utf8.decode(decodedBytes);
+      return jsonDecode(decodedString);
+    } catch (e) {
+      throw Exception('فشل في قراءة أو فك تشفير ملف إعدادات FCM: $e');
+    }
+  }
+
+  // 🚀 دالة توليد رمز المرور المؤقت (OAuth2 Token) متوافقة مع الويب
+  Future<String> _getAccessToken(Map<String, dynamic> credentials) async {
+    final clientEmail = credentials['client_email'];
+    final privateKey = credentials['private_key'];
+
+    if (clientEmail == null || privateKey == null) {
+      throw Exception('بيانات FCM غير مكتملة في الملف.');
+    }
+
+    // 1. إنشاء الـ JWT
+    final jwt = JWT(
+      {
+        'iss': clientEmail,
+        'scope': 'https://www.googleapis.com/auth/firebase.messaging',
+        'aud': 'https://oauth2.googleapis.com/token',
+        'exp': (DateTime.now()
+                    .add(const Duration(hours: 1))
+                    .millisecondsSinceEpoch /
+                1000)
+            .round(),
+        'iat': (DateTime.now().millisecondsSinceEpoch / 1000).round(),
+      },
+    );
+
+    // 2. توقيع الـ JWT باستخدام المفتاح الخاص
+    final signedJwt = jwt.sign(
+      RSAPrivateKey(privateKey),
+      algorithm: JWTAlgorithm.RS256,
+    );
+
+    // 3. طلب Access Token من خوادم جوجل
+    final response = await http.post(
+      Uri.parse('https://oauth2.googleapis.com/token'),
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
+        'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion': signedJwt,
+      },
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['access_token'];
+    } else {
+      throw Exception('فشل في الحصول على رمز المرور: ${response.body}');
+    }
+  }
+
+  // 🚀 دالة إرسال الإشعار عبر FCM v1 API
   Future<void> _sendPushNotification({
     required String title,
     required String message,
-    String? targetUserId, // إذا كان null، يُرسل للجميع
+    String? targetToken, // إذا كان null، يُرسل للجميع عبر موضوع (topic)
   }) async {
-    // ⬅️ قراءة المفاتيح من بيئة البناء مباشرة (أمان تام)
-    const appId = String.fromEnvironment('ONESIGNAL_APP_ID');
-    const restApiKey = String.fromEnvironment('ONESIGNAL_REST_API_KEY');
+    // جلب الإعدادات وفك تشفيرها
+    final credentials = await _getFcmCredentials();
+    final projectId = credentials['project_id'];
 
-    if (appId.isEmpty || restApiKey.isEmpty) {
-      throw Exception('مفاتيح OneSignal غير متوفرة في بيئة البناء.');
+    if (projectId == null) {
+      throw Exception('معرف المشروع (project_id) غير موجود في الملف.');
     }
 
+    // توليد رمز المرور
+    final accessToken = await _getAccessToken(credentials);
+
+    // ⬅️ تم تعديل الهيكل لإضافة الأولوية القصوى والصوت لضمان ظهور الإشعار
     final Map<String, dynamic> payload = {
-      "app_id": appId,
-      "headings": {"en": title, "ar": title},
-      "contents": {"en": message, "ar": message},
+      "message": {
+        "notification": {
+          "title": title,
+          "body": message,
+        },
+        "android": {
+          "priority": "high",
+          "notification": {"sound": "default"}
+        },
+        "apns": {
+          "payload": {
+            "aps": {"sound": "default"}
+          }
+        }
+      }
     };
 
-    if (targetUserId != null) {
-      // إرسال لمستخدم محدد عبر الـ ID الخاص به في Supabase
-      payload["include_external_user_ids"] = [targetUserId];
+    if (targetToken != null) {
+      // إرسال لمستخدم محدد عبر الـ FCM Token الخاص به
+      payload["message"]["token"] = targetToken;
     } else {
-      // إرسال للجميع
-      payload["included_segments"] = ["All"];
+      // إرسال للجميع (يجب أن يكون المستخدمون مشتركين في موضوع all)
+      payload["message"]["topic"] = "all";
     }
 
     final response = await http.post(
-      Uri.parse('https://onesignal.com/api/v1/notifications'),
+      Uri.parse(
+          'https://fcm.googleapis.com/v1/projects/$projectId/messages:send'),
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': 'Basic $restApiKey',
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
       },
       body: jsonEncode(payload),
     );
@@ -111,10 +216,10 @@ class _NotificationsTabState extends State<NotificationsTab> {
 
     setState(() => _isSendingTarget = true);
     try {
-      // 1. البحث عن المستخدم في Supabase بواسطة الإيميل
+      // 1. البحث عن المستخدم في Supabase بواسطة الإيميل وجلب التوكن
       final userRes = await Supabase.instance.client
           .from('users')
-          .select('id')
+          .select('push_token')
           .eq('email', email)
           .maybeSingle();
 
@@ -122,13 +227,17 @@ class _NotificationsTabState extends State<NotificationsTab> {
         throw Exception('لم يتم العثور على مستخدم بهذا البريد الإلكتروني.');
       }
 
-      final targetUserId = userRes['id'];
+      final targetToken = userRes['push_token'];
+
+      if (targetToken == null || targetToken.toString().trim().isEmpty) {
+        throw Exception('المستخدم لا يمتلك رمز إشعارات (FCM Token) صالح.');
+      }
 
       // 2. إرسال الإشعار لهذا المستخدم فقط
       await _sendPushNotification(
         title: _targetTitleCtrl.text.trim(),
         message: _targetMessageCtrl.text.trim(),
-        targetUserId: targetUserId,
+        targetToken: targetToken,
       );
 
       _showSnackBar('تم إرسال الإشعار للمستخدم بنجاح! 🎯', Colors.green);
