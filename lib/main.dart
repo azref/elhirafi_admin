@@ -21,7 +21,8 @@ Future<void> main() async {
 
   await Supabase.initialize(
     url: supabaseUrl,
-    anonKey: supabaseAnonKey, // ⬅️ تم التصحيح من publishableKey إلى anonKey
+    publishableKey:
+        supabaseAnonKey, // ⬅️ تم التصحيح من anonKey إلى publishableKey لإزالة التحذير
   );
 
   runApp(const AdminDashboardApp());
@@ -37,14 +38,14 @@ class AdminDashboardApp extends StatelessWidget {
       valueListenable: themeNotifier,
       builder: (_, ThemeMode currentMode, __) {
         return MaterialApp(
-          title: 'لوحة تحكم الصانع الحرفي',
+          title: 'لوحة تحكم منصة فرصة',
           debugShowCheckedModeBanner: false,
           themeMode: currentMode, // ⬅️ تحديد الثيم الحالي
           theme: ThemeData(
             primarySwatch: Colors.blueGrey,
             fontFamily: 'Tajawal',
             brightness: Brightness.light,
-            scaffoldBackgroundColor: Colors.grey[100],
+            scaffoldBackgroundColor: Colors.grey[150],
           ),
           darkTheme: ThemeData(
             primarySwatch: Colors.blueGrey,
@@ -77,6 +78,7 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   bool _isLoading = true;
   bool _isAdmin = false;
+  bool _needsMfa = false;
 
   @override
   void initState() {
@@ -84,10 +86,16 @@ class _AuthGateState extends State<AuthGate> {
     _checkAuth();
 
     // الاستماع لتغيرات تسجيل الدخول/الخروج
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      if (mounted) {
-        _checkAuth();
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+      if (!mounted) return;
+
+      // إذا كان الحدث هو تسجيل دخول، لا تدع AuthGate يتدخل مباشرة.
+      // شاشة LoginScreen ستكمل عملية MFA أولاً.
+      if (data.event == AuthChangeEvent.signedIn) {
+        return;
       }
+
+      await _checkAuth();
     });
   }
 
@@ -97,6 +105,23 @@ class _AuthGateState extends State<AuthGate> {
 
     if (session != null) {
       try {
+        // فحص مستوى الأمان (MFA) بشكل صارم
+        // تمت إضافة await لأن الدالة ترجع Future
+        final aal =
+            Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
+
+        // إذا كان مستوى الأمان الحالي aal1 (لم يكمل المصادقة الثنائية)، نمنعه من الدخول
+        if (aal.currentLevel == AuthenticatorAssuranceLevels.aal1) {
+          setState(() {
+            _needsMfa = true;
+            _isAdmin = false;
+            _isLoading = false;
+          });
+          return;
+        } else {
+          _needsMfa = false;
+        }
+
         final userData = await Supabase.instance.client
             .from('users')
             .select('is_admin')
@@ -110,7 +135,10 @@ class _AuthGateState extends State<AuthGate> {
         setState(() => _isAdmin = false);
       }
     } else {
-      setState(() => _isAdmin = false);
+      setState(() {
+        _isAdmin = false;
+        _needsMfa = false;
+      });
     }
 
     setState(() => _isLoading = false);
@@ -122,7 +150,7 @@ class _AuthGateState extends State<AuthGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    if (Supabase.instance.client.auth.currentSession == null) {
+    if (Supabase.instance.client.auth.currentSession == null || _needsMfa) {
       return const LoginScreen(); // ⬅️ البوابة الحقيقية
     }
 
@@ -147,7 +175,7 @@ class _AuthGateState extends State<AuthGate> {
       );
     }
 
-    // إذا كان مسجلاً الدخول وهو مدير، افتح لوحة التحكم!
+    // إذا كان مسجلاً الدخول وهو مدير وأكمل MFA، افتح لوحة التحكم!
     return const DashboardScreen();
   }
 }
