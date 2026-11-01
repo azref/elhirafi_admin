@@ -212,7 +212,7 @@ class _ReportsTabState extends State<ReportsTab> {
       columnSpacing: 16.0,
       horizontalMargin: 16.0,
       headingRowHeight: 50,
-      dataRowMaxHeight: 80,
+      dataRowMaxHeight: 220,
       dataRowMinHeight: 60,
       columns: const [
         DataColumn(
@@ -298,14 +298,16 @@ class _ReportsTabState extends State<ReportsTab> {
             ),
           ),
           DataCell(
-            Tooltip(
-              message: report['description'] ?? 'لا يوجد',
+            InkWell(
+              onTap: () => _showDetailsDialog(report['description'] ?? ''),
               child: SizedBox(
-                width: 120,
+                width: 320,
                 child: Text(
-                  report['description'] ?? 'لا يوجد',
-                  style: const TextStyle(fontSize: 12),
-                  overflow: TextOverflow.ellipsis,
+                  (report['description'] ?? '').toString().isEmpty
+                      ? 'لا يوجد'
+                      : report['description'].toString(),
+                  style: const TextStyle(fontSize: 12, height: 1.4),
+                  softWrap: true,
                 ),
               ),
             ),
@@ -319,6 +321,33 @@ class _ReportsTabState extends State<ReportsTab> {
           ),
         ]);
       }).toList(),
+    );
+  }
+
+  void _showDetailsDialog(String details) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تفاصيل البلاغ'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: SelectableText(
+                details.trim().isEmpty ? 'لا يوجد' : details,
+                style: const TextStyle(fontSize: 14, height: 1.6),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('إغلاق'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
