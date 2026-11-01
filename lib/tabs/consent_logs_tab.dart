@@ -18,6 +18,16 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
   bool _isAdmin = true;
   dynamic _selectedLog;
 
+  final ScrollController _verticalController = ScrollController();
+  final ScrollController _horizontalController = ScrollController();
+
+  @override
+  void dispose() {
+    _verticalController.dispose();
+    _horizontalController.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -241,24 +251,36 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
+                child: Scrollbar(
+                  controller: _verticalController,
+                  thumbVisibility: true,
                   child: SingleChildScrollView(
-                    child: DataTable(
-                      columnSpacing: 24,
-                      horizontalMargin: 16,
-                      columns: const [
-                        DataColumn(label: Text('تاريخ ووقت الموافقة')),
-                        DataColumn(label: Text('إيميل المستخدم')),
-                        DataColumn(label: Text('نوع الموافقة')),
-                        DataColumn(label: Text('مقبولة؟')),
-                        DataColumn(label: Text('إصدار الشروط')),
-                        DataColumn(label: Text('إصدار التطبيق')),
-                        DataColumn(label: Text('الطريقة')),
-                        DataColumn(label: Text('عنوان IP')),
-                        DataColumn(label: Text('User Agent')),
-                      ],
-                      rows: _buildRows(),
+                    controller: _verticalController,
+                    child: Scrollbar(
+                      controller: _horizontalController,
+                      thumbVisibility: true,
+                      notificationPredicate: (notification) =>
+                          notification.depth == 0,
+                      child: SingleChildScrollView(
+                        controller: _horizontalController,
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columnSpacing: 24,
+                          horizontalMargin: 16,
+                          columns: const [
+                            DataColumn(label: Text('تاريخ ووقت الموافقة')),
+                            DataColumn(label: Text('إيميل المستخدم')),
+                            DataColumn(label: Text('نوع الموافقة')),
+                            DataColumn(label: Text('مقبولة؟')),
+                            DataColumn(label: Text('إصدار الشروط')),
+                            DataColumn(label: Text('إصدار التطبيق')),
+                            DataColumn(label: Text('الطريقة')),
+                            DataColumn(label: Text('عنوان IP')),
+                            DataColumn(label: Text('User Agent')),
+                          ],
+                          rows: _buildRows(),
+                        ),
+                      ),
                     ),
                   ),
                 ),
