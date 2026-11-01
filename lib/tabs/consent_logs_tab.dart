@@ -62,6 +62,7 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
 
       // التحقق من صلاحية المسؤول (RLS يسمح بقراءة السجلات للمسؤول فقط)
       final me = supabase.auth.currentUser;
+      debugPrint('🔎 [Consent] المستخدم الحالي: ${me?.email} | id=${me?.id}');
       if (me != null) {
         try {
           final meRow = await supabase
@@ -70,9 +71,13 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
               .eq('id', me.id)
               .maybeSingle();
           _isAdmin = meRow?['is_admin'] == true;
-        } catch (_) {
+          debugPrint('🔎 [Consent] is_admin = $_isAdmin');
+        } catch (e) {
+          debugPrint('⚠️ [Consent] تعذر قراءة is_admin: $e');
           _isAdmin = true;
         }
+      } else {
+        debugPrint('⚠️ [Consent] لا توجد جلسة Supabase (currentUser = null)');
       }
 
       // جلب الإيميلات (اختياري: فشله لا يمنع عرض السجلات)
@@ -82,8 +87,10 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
           _userEmails[user['id']] = (user['email'] ?? 'إيميل غير معروف')
               .toString();
         }
+        debugPrint(
+            '🔎 [Consent] تم جلب ${_userEmails.length} إيميل من جدول users');
       } catch (e) {
-        debugPrint('تعذر جلب إيميلات المستخدمين: $e');
+        debugPrint('⚠️ [Consent] تعذر جلب إيميلات المستخدمين: $e');
       }
 
       final logsData = await supabase
@@ -91,11 +98,19 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
           .select()
           .order('created_at', ascending: false);
 
+      debugPrint('🔎 [Consent] عدد سجلات الموافقة المرجعة: ${logsData.length}');
+      if (logsData.isEmpty) {
+        debugPrint(
+            '⚠️ [Consent] رجع 0 صف. الاحتمالان: الجدول فارغ فعلًا، أو RLS يمنع القراءة (is_admin=$_isAdmin).');
+      } else {
+        debugPrint('🔎 [Consent] أول سجل: ${logsData.first}');
+      }
+
       setState(() {
         _logs = logsData;
       });
     } catch (e) {
-      debugPrint('خطأ في جلب سجلات الموافقة: $e');
+      debugPrint('❌ [Consent] فشل جلب السجلات: $e');
       setState(() => _errorMessage = e.toString());
     } finally {
       if (mounted) setState(() => _isLoading = false);
