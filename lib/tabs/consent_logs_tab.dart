@@ -236,16 +236,30 @@ class _ConsentDataSource extends DataTableSource {
     this.onRowSelected,
   });
 
+  String _safeText(dynamic value, String fallback) {
+    if (value == null) return fallback;
+    final text = value.toString().trim();
+    return text.isEmpty ? fallback : text;
+  }
+
   @override
   DataRow? getRow(int index) {
     if (index >= logs.length) return null;
     final log = logs[index];
 
-    final date = DateTime.parse(log['created_at']).toLocal();
-    final formattedDate =
-        '${date.year}/${date.month}/${date.day} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+    String formattedDate = 'غير متوفر';
+    final rawDate = log['created_at'];
+    if (rawDate != null) {
+      final parsed = DateTime.tryParse(rawDate.toString());
+      if (parsed != null) {
+        final date = parsed.toLocal();
+        formattedDate =
+            '${date.year}/${date.month}/${date.day} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+      }
+    }
 
-    final email = log['user_email'] ?? userEmails[log['user_id']] ?? 'مجهول';
+    final email = _safeText(log['user_email'],
+        _safeText(userEmails[log['user_id']], 'مجهول'));
     final isSelected = selectedLog != null && selectedLog['id'] == log['id'];
 
     return DataRow(
@@ -257,14 +271,14 @@ class _ConsentDataSource extends DataTableSource {
         DataCell(Text(formattedDate,
             style: const TextStyle(fontWeight: FontWeight.bold))),
         DataCell(Text(email, style: const TextStyle(color: Colors.blue))),
-        DataCell(Text(log['consent_type'] ?? 'غير محدد')),
+        DataCell(Text(_safeText(log['consent_type'], 'غير محدد'))),
         DataCell(Text(log['is_accepted'] == true ? 'نعم' : 'لا')),
-        DataCell(Text(log['consent_version'] ?? 'غير محدد')),
-        DataCell(Text(log['app_version'] ?? 'غير متوفر')),
-        DataCell(Text(log['method'] ?? 'غير محدد')),
-        DataCell(Text(log['ip_address'] ?? 'غير متوفر',
+        DataCell(Text(_safeText(log['consent_version'], 'غير محدد'))),
+        DataCell(Text(_safeText(log['app_version'], 'غير متوفر'))),
+        DataCell(Text(_safeText(log['method'], 'غير محدد'))),
+        DataCell(Text(_safeText(log['ip_address'], 'غير متوفر'),
             style: const TextStyle(color: Colors.grey))),
-        DataCell(Text(log['user_agent'] ?? 'غير متوفر',
+        DataCell(Text(_safeText(log['user_agent'], 'غير متوفر'),
             style: const TextStyle(color: Colors.grey))),
       ],
     );
