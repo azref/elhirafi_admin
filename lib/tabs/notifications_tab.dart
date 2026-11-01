@@ -279,73 +279,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
             const SizedBox(height: 24),
 
             // ==========================================
-            // 🟦 بطاقة الإرسال للجميع (تحديثات، أخبار)
-            // ==========================================
-            Card(
-              elevation: 4,
-              color: Colors.blue.shade50,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: Colors.blue.shade200)),
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.campaign,
-                            color: Colors.blue.shade700, size: 30),
-                        const SizedBox(width: 10),
-                        Text('إشعار عام (لجميع المستخدمين)',
-                            style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue.shade800)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                        'يستخدم لإرسال التحديثات، الأخبار، أو العروض لجميع من يمتلك التطبيق.',
-                        style: TextStyle(color: Colors.black54)),
-                    const SizedBox(height: 20),
-                    _buildTextField(
-                        controller: _allTitleCtrl,
-                        label: 'عنوان الإشعار',
-                        icon: Icons.title),
-                    const SizedBox(height: 16),
-                    _buildTextField(
-                        controller: _allMessageCtrl,
-                        label: 'نص الرسالة',
-                        icon: Icons.message,
-                        maxLines: 3),
-                    const SizedBox(height: 20),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton.icon(
-                        onPressed: _isSendingAll ? null : _handleSendToAll,
-                        icon: _isSendingAll
-                            ? const CircularProgressIndicator(
-                                color: Colors.white)
-                            : const Icon(Icons.send),
-                        label: Text(_isSendingAll
-                            ? 'جاري الإرسال...'
-                            : 'إرسال للجميع الآن'),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // ==========================================
-            // 🟧 بطاقة الإرسال المخصص (إنذار مسيء)
+            // 🟧 بطاقة الإنذار المخصص (في الأعلى)
             // ==========================================
             Card(
               elevation: 4,
@@ -407,6 +341,72 @@ class _NotificationsTabState extends State<NotificationsTab> {
                             : 'إرسال الإنذار للمستخدم'),
                         style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.orange.shade800,
+                            foregroundColor: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 32),
+
+            // ==========================================
+            // 🟦 بطاقة الإرسال للجميع (في الأسفل)
+            // ==========================================
+            Card(
+              elevation: 4,
+              color: Colors.blue.shade50,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.blue.shade200)),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.campaign,
+                            color: Colors.blue.shade700, size: 30),
+                        const SizedBox(width: 10),
+                        Text('إشعار عام (لجميع المستخدمين)',
+                            style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.blue.shade800)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'يستخدم لإرسال التحديثات، الأخبار، أو العروض لجميع من يمتلك التطبيق.',
+                        style: TextStyle(color: Colors.black54)),
+                    const SizedBox(height: 20),
+                    _buildTextField(
+                        controller: _allTitleCtrl,
+                        label: 'عنوان الإشعار',
+                        icon: Icons.title),
+                    const SizedBox(height: 16),
+                    _buildTextField(
+                        controller: _allMessageCtrl,
+                        label: 'نص الرسالة',
+                        icon: Icons.message,
+                        maxLines: 3),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton.icon(
+                        onPressed: _isSendingAll ? null : _handleSendToAll,
+                        icon: _isSendingAll
+                            ? const CircularProgressIndicator(
+                                color: Colors.white)
+                            : const Icon(Icons.send),
+                        label: Text(_isSendingAll
+                            ? 'جاري الإرسال...'
+                            : 'إرسال للجميع الآن'),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade700,
                             foregroundColor: Colors.white),
                       ),
                     ),
