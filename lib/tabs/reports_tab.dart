@@ -212,7 +212,7 @@ class _ReportsTabState extends State<ReportsTab> {
       columnSpacing: 16.0,
       horizontalMargin: 16.0,
       headingRowHeight: 50,
-      dataRowMaxHeight: 220,
+      dataRowMaxHeight: 80,
       dataRowMinHeight: 60,
       columns: const [
         DataColumn(
@@ -308,6 +308,8 @@ class _ReportsTabState extends State<ReportsTab> {
                       : report['description'].toString(),
                   style: const TextStyle(fontSize: 12, height: 1.4),
                   softWrap: true,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
             ),
