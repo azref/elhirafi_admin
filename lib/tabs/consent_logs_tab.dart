@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ConsentLogsTab extends StatefulWidget {
@@ -13,6 +15,9 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
   final Map<String, String> _userEmails = {};
 
   bool _isLoading = true;
+  String? _errorMessage;
+  bool _isAdmin = true;
+  dynamic _selectedLog;
 
   @override
   void initState() {
@@ -20,14 +25,65 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
     _fetchLogs();
   }
 
+  Future<void> _copySelectedLog() async {
+    if (_selectedLog == null) return;
+    final log = _selectedLog;
+    final buffer = StringBuffer();
+    buffer.writeln('معرف السجل: ${log['id'] ?? ''}');
+    buffer.writeln('التاريخ: ${log['created_at'] ?? ''}');
+    buffer.writeln(
+        'الإيميل: ${log['user_email'] ?? _userEmails[log['user_id']] ?? ''}');
+    buffer.writeln('نوع الموافقة: ${log['consent_type'] ?? ''}');
+    buffer
+        .writeln('تمت الموافقة: ${log['is_accepted'] == true ? 'نعم' : 'لا'}');
+    buffer.writeln('إصدار الشروط: ${log['consent_version'] ?? ''}');
+    buffer.writeln('إصدار التطبيق: ${log['app_version'] ?? ''}');
+    buffer.writeln('الطريقة: ${log['method'] ?? ''}');
+    buffer.writeln('عنوان IP: ${log['ip_address'] ?? ''}');
+    buffer.writeln('User Agent: ${log['user_agent'] ?? ''}');
+
+    await Clipboard.setData(ClipboardData(text: buffer.toString()));
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('تم نسخ بيانات السطر', textAlign: TextAlign.right)),
+      );
+    }
+  }
+
   Future<void> _fetchLogs() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     try {
       final supabase = Supabase.instance.client;
 
-      final usersData = await supabase.from('users').select('id, email');
-      for (var user in usersData) {
-        _userEmails[user['id']] = user['email'] ?? 'إيميل غير معروف';
+      // التحقق من صلاحية المسؤول (RLS يسمح بقراءة السجلات للمسؤول فقط)
+      final me = supabase.auth.currentUser;
+      if (me != null) {
+        try {
+          final meRow = await supabase
+              .from('users')
+              .select('is_admin')
+              .eq('id', me.id)
+              .maybeSingle();
+          _isAdmin = meRow?['is_admin'] == true;
+        } catch (_) {
+          _isAdmin = true;
+        }
+      }
+
+      // جلب الإيميلات (اختياري: فشله لا يمنع عرض السجلات)
+      try {
+        final usersData = await supabase.from('users').select('id, email');
+        for (final user in usersData) {
+          _userEmails[user['id']] = (user['email'] ?? 'إيميل غير معروف')
+              .toString();
+        }
+      } catch (e) {
+        debugPrint('تعذر جلب إيميلات المستخدمين: $e');
       }
 
       final logsData = await supabase
@@ -40,8 +96,9 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
       });
     } catch (e) {
       debugPrint('خطأ في جلب سجلات الموافقة: $e');
+      setState(() => _errorMessage = e.toString());
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -51,10 +108,39 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('تعذر جلب سجلات الموافقة:\n$_errorMessage',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, color: Colors.red)),
+        ),
+      );
+    }
+
     if (_logs.isEmpty) {
-      return const Center(
-          child: Text('لا توجد سجلات موافقة حالياً.',
-              style: TextStyle(fontSize: 18, color: Colors.grey)));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('لا توجد سجلات موافقة حالياً.',
+                  style: TextStyle(fontSize: 18, color: Colors.grey)),
+              if (!_isAdmin) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'ملاحظة: حسابك الحالي غير مُعلَّم كمسؤول (is_admin = false)،\n'
+                  'وسياسة RLS تمنع غير المسؤول من قراءة جدول consent_logs.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: Colors.orange),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
     }
 
     return Padding(
@@ -66,29 +152,67 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
           textDirection: TextDirection.rtl,
           child: ListView(
             children: [
-              PaginatedDataTable(
-                header: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('سجلات موافقة المستخدمين',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.blueGrey)),
-                    IconButton(
-                        icon: const Icon(Icons.refresh, color: Colors.blue),
-                        onPressed: _fetchLogs,
-                        tooltip: 'تحديث'),
-                  ],
+              // ✨ التمرير الأفقي
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: MediaQuery.of(context).size.width - 48,
+                  ),
+                  child: Localizations.override(
+                    context: context,
+                    locale: const Locale('ar'),
+                    delegates: const [
+                      GlobalMaterialLocalizations.delegate,
+                      GlobalWidgetsLocalizations.delegate,
+                    ],
+                    child: PaginatedDataTable(
+                      header: const Text('سجلات موافقة المستخدمين',
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blueGrey)),
+                      actions: [
+                        if (_selectedLog != null)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 8.0),
+                            child: ElevatedButton.icon(
+                              onPressed: _copySelectedLog,
+                              icon: const Icon(Icons.copy, size: 16),
+                              label: const Text('نسخ'),
+                            ),
+                          ),
+                        IconButton(
+                            icon: const Icon(Icons.refresh, color: Colors.blue),
+                            onPressed: _fetchLogs,
+                            tooltip: 'تحديث'),
+                      ],
+                      rowsPerPage: _logs.length > 10
+                          ? 10
+                          : (_logs.isEmpty ? 1 : _logs.length),
+                      columns: const [
+                        DataColumn(label: Text('تاريخ ووقت الموافقة')),
+                        DataColumn(label: Text('إيميل المستخدم')),
+                        DataColumn(label: Text('نوع الموافقة')),
+                        DataColumn(label: Text('مقبولة؟')),
+                        DataColumn(label: Text('إصدار الشروط')),
+                        DataColumn(label: Text('إصدار التطبيق')),
+                        DataColumn(label: Text('الطريقة')),
+                        DataColumn(label: Text('عنوان IP (إن وجد)')),
+                        DataColumn(label: Text('User Agent')),
+                      ],
+                      source: _ConsentDataSource(
+                        _logs,
+                        _userEmails,
+                        selectedLog: _selectedLog,
+                        onRowSelected: (log, selected) {
+                          setState(() {
+                            _selectedLog = selected ? log : null;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
                 ),
-                rowsPerPage:
-                    _logs.length > 10 ? 10 : (_logs.isEmpty ? 1 : _logs.length),
-                columns: const [
-                  DataColumn(label: Text('تاريخ ووقت الموافقة')),
-                  DataColumn(label: Text('إيميل المستخدم')),
-                  DataColumn(label: Text('إصدار الشروط')),
-                  DataColumn(label: Text('عنوان IP (إن وجد)')),
-                ],
-                source: _ConsentDataSource(_logs, _userEmails),
               ),
             ],
           ),
@@ -98,11 +222,19 @@ class _ConsentLogsTabState extends State<ConsentLogsTab> {
   }
 }
 
+// ✨ الكلاس الخاص بمصدر البيانات (خارج كلاس الـ State)
 class _ConsentDataSource extends DataTableSource {
   final List<dynamic> logs;
   final Map<String, String> userEmails;
+  final dynamic selectedLog;
+  final void Function(dynamic log, bool selected)? onRowSelected;
 
-  _ConsentDataSource(this.logs, this.userEmails);
+  _ConsentDataSource(
+    this.logs,
+    this.userEmails, {
+    this.selectedLog,
+    this.onRowSelected,
+  });
 
   @override
   DataRow? getRow(int index) {
@@ -113,16 +245,29 @@ class _ConsentDataSource extends DataTableSource {
     final formattedDate =
         '${date.year}/${date.month}/${date.day} - ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
 
-    final email = userEmails[log['user_id']] ?? 'مجهول';
+    final email = log['user_email'] ?? userEmails[log['user_id']] ?? 'مجهول';
+    final isSelected = selectedLog != null && selectedLog['id'] == log['id'];
 
-    return DataRow(cells: [
-      DataCell(Text(formattedDate,
-          style: const TextStyle(fontWeight: FontWeight.bold))),
-      DataCell(Text(email, style: const TextStyle(color: Colors.blue))),
-      DataCell(Text(log['consent_version'] ?? 'غير محدد')),
-      DataCell(Text(log['ip_address'] ?? 'غير متوفر',
-          style: const TextStyle(color: Colors.grey))),
-    ]);
+    return DataRow(
+      selected: isSelected,
+      onSelectChanged: (selected) {
+        onRowSelected?.call(log, selected ?? false);
+      },
+      cells: [
+        DataCell(Text(formattedDate,
+            style: const TextStyle(fontWeight: FontWeight.bold))),
+        DataCell(Text(email, style: const TextStyle(color: Colors.blue))),
+        DataCell(Text(log['consent_type'] ?? 'غير محدد')),
+        DataCell(Text(log['is_accepted'] == true ? 'نعم' : 'لا')),
+        DataCell(Text(log['consent_version'] ?? 'غير محدد')),
+        DataCell(Text(log['app_version'] ?? 'غير متوفر')),
+        DataCell(Text(log['method'] ?? 'غير محدد')),
+        DataCell(Text(log['ip_address'] ?? 'غير متوفر',
+            style: const TextStyle(color: Colors.grey))),
+        DataCell(Text(log['user_agent'] ?? 'غير متوفر',
+            style: const TextStyle(color: Colors.grey))),
+      ],
+    );
   }
 
   @override
@@ -130,5 +275,5 @@ class _ConsentDataSource extends DataTableSource {
   @override
   int get rowCount => logs.length;
   @override
-  int get selectedRowCount => 0;
+  int get selectedRowCount => selectedLog != null ? 1 : 0;
 }
