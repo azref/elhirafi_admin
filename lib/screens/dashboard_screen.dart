@@ -78,6 +78,33 @@ class _DashboardScreenState extends State<DashboardScreen>
               );
             },
           ),
+          PopupMenuButton<String>(
+            tooltip: 'خيارات الحساب',
+            icon: const Icon(Icons.more_vert, color: Colors.white),
+            onSelected: (value) async {
+              if (value == 'password') {
+                await _showChangePasswordDialog();
+              } else if (value == 'reset') {
+                await _sendPasswordResetLink();
+              } else if (value == 'account') {
+                _showAccountInfo();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'account',
+                child: Text('معلومات الحساب'),
+              ),
+              PopupMenuItem<String>(
+                value: 'password',
+                child: Text('تغيير كلمة المرور'),
+              ),
+              PopupMenuItem<String>(
+                value: 'reset',
+                child: Text('إرسال رابط استعادة كلمة المرور'),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             tooltip: 'تسجيل الخروج',
@@ -100,5 +127,131 @@ class _DashboardScreenState extends State<DashboardScreen>
         ],
       ),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // خيارات حساب المسؤول (قائمة الثلاث نقاط)
+  // ═══════════════════════════════════════════════════════════
+  void _showSnack(String message, Color color) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, textAlign: TextAlign.right),
+        backgroundColor: color,
+      ),
+    );
+  }
+
+  void _showAccountInfo() {
+    final user = Supabase.instance.client.auth.currentUser;
+    showDialog(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('معلومات الحساب'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('البريد: ${user?.email ?? 'غير متوفر'}'),
+              const SizedBox(height: 8),
+              Text('المعرّف: ${user?.id ?? 'غير متوفر'}'),
+              const SizedBox(height: 8),
+              Text('آخر دخول: ${user?.lastSignInAt ?? 'غير متوفر'}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('إغلاق')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendPasswordResetLink() async {
+    final email = Supabase.instance.client.auth.currentUser?.email;
+    if (email == null || email.isEmpty) {
+      _showSnack('لا يوجد بريد مرتبط بالحساب الحالي.', Colors.orange);
+      return;
+    }
+    try {
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
+      _showSnack('تم إرسال رابط الاستعادة إلى: $email', Colors.green);
+    } catch (e) {
+      _showSnack('تعذر إرسال الرابط: $e', Colors.red);
+    }
+  }
+
+  Future<void> _showChangePasswordDialog() async {
+    final passwordCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+
+    final bool? shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Directionality(
+        textDirection: TextDirection.rtl,
+        child: AlertDialog(
+          title: const Text('تغيير كلمة المرور'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: passwordCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'كلمة المرور الجديدة',
+                  helperText: '8 أحرف على الأقل',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: confirmCtrl,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'تأكيد كلمة المرور',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('حفظ')),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldSave != true) return;
+    if (passwordCtrl.text.length < 8) {
+      _showSnack('كلمة المرور قصيرة جدًا (8 أحرف على الأقل).', Colors.orange);
+      return;
+    }
+    if (passwordCtrl.text != confirmCtrl.text) {
+      _showSnack('كلمتا المرور غير متطابقتين.', Colors.orange);
+      return;
+    }
+
+    try {
+      await Supabase.instance.client.auth.updateUser(
+        UserAttributes(password: passwordCtrl.text),
+      );
+      _showSnack('تم تحديث كلمة المرور بنجاح.', Colors.green);
+    } on AuthException catch (e) {
+      final bool needsMfa =
+          e.code == 'insufficient_aal' || e.message.contains('AAL2');
+      _showSnack(
+        needsMfa
+            ? 'الحساب محمي بـ MFA: استخدم "إرسال رابط استعادة كلمة المرور" أو غيّرها من لوحة Supabase.'
+            : e.message,
+        needsMfa ? Colors.orange : Colors.red,
+      );
+    } catch (e) {
+      _showSnack('تعذر تغيير كلمة المرور: $e', Colors.red);
+    }
   }
 }
