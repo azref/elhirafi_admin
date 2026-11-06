@@ -189,12 +189,46 @@ class _NotificationsTabState extends State<NotificationsTab> {
 
     setState(() => _isSendingAll = true);
     try {
-      await _sendPushNotification(
-        title: _allTitleCtrl.text.trim(),
-        message: _allMessageCtrl.text.trim(),
-      );
+      // ✅ نرسل لكل توكن مسجل في قاعدة البيانات، لا نعتمد على اشتراك topic.
+      final rows = await Supabase.instance.client
+          .from('users')
+          .select('push_token')
+          .not('push_token', 'is', null);
+
+      final Set<String> tokens = rows
+          .map((row) => row['push_token']?.toString().trim() ?? '')
+          .where((token) => token.isNotEmpty)
+          .toSet();
+
+      final String title = _allTitleCtrl.text.trim();
+      final String message = _allMessageCtrl.text.trim();
+
+      int sent = 0;
+      int failed = 0;
+
+      if (tokens.isEmpty) {
+        // لا توكنات مسجلة: نرجع إلى الموضوع العام كخيار أخير.
+        await _sendPushNotification(title: title, message: message);
+        sent = 1;
+      } else {
+        for (final token in tokens) {
+          try {
+            await _sendPushNotification(
+              title: title,
+              message: message,
+              targetToken: token,
+            );
+            sent++;
+          } catch (e) {
+            failed++;
+          }
+          await Future.delayed(const Duration(milliseconds: 80));
+        }
+      }
+
       _showSnackBar(
-          'تم إرسال الإشعار لجميع المستخدمين بنجاح! 🚀', Colors.green);
+          'تم الإرسال: $sent ناجح، $failed فاشل من ${tokens.length} مستخدم.',
+          failed == 0 ? Colors.green : Colors.orange);
       _allTitleCtrl.clear();
       _allMessageCtrl.clear();
     } catch (e) {
