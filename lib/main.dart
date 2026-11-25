@@ -1,5 +1,6 @@
 import 'package:elhirafi_admin/screens/login_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // استيراد شاشة لوحة التحكم
@@ -41,6 +42,15 @@ class AdminDashboardApp extends StatelessWidget {
           title: 'لوحة تحكم منصة فرصة',
           debugShowCheckedModeBanner: false,
           themeMode: currentMode, // ⬅️ تحديد الثيم الحالي
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('ar'),
+            Locale('en'),
+          ],
           theme: ThemeData(
             primarySwatch: Colors.blueGrey,
             fontFamily: 'Tajawal',

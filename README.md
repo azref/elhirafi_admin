@@ -15,3 +15,8 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+ أمر البناء flutter build web  
+
+flutter build web --release --dart-define=FCM_JSON_BASE64="<قيمة المفتاح base64>"
+
+firebase deploy --only hosting 

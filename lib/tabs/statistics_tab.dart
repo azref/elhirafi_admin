@@ -114,8 +114,9 @@ class _StatisticsTabState extends State<StatisticsTab> {
                 crossAxisCount: isWideScreen ? 4 : 2,
                 crossAxisSpacing: 16,
                 mainAxisSpacing: 16,
-                childAspectRatio:
-                    isWideScreen ? 3.0 : 2.5, // ⬅️ تقليل الارتفاع بشكل كبير
+                childAspectRatio: isWideScreen
+                    ? 3.0
+                    : 1.5, // ⬅️ زيادة الارتفاع نسبياً على الهاتف
                 physics: const NeverScrollableScrollPhysics(),
                 children: [
                   _buildStatCard(
@@ -179,7 +180,8 @@ class _StatisticsTabState extends State<StatisticsTab> {
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                        color: Colors.black.withOpacity(0.05), blurRadius: 10)
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10)
                   ],
                 ),
                 child: ClipRRect(
@@ -226,45 +228,66 @@ class _StatisticsTabState extends State<StatisticsTab> {
               ? Border.all(color: Colors.blueGrey.shade800, width: 3)
               : Border.all(color: Colors.transparent, width: 3),
           gradient: LinearGradient(
-            colors: [color.withOpacity(0.8), color],
+            colors: [color.withValues(alpha: 0.8), color],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           boxShadow: isSelected
               ? [
                   BoxShadow(
-                      color: color.withOpacity(0.6),
+                      color: color.withValues(alpha: 0.6),
                       blurRadius: 10,
                       spreadRadius: 1)
                 ]
               : [const BoxShadow(color: Colors.black12, blurRadius: 5)],
         ),
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Icon(icon, size: 40, color: Colors.white.withOpacity(0.4)),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // ⬅️ حساب حجم خط ديناميكي متناسب مع عرض البطاقة الفعلي
+            final double cardWidth = constraints.maxWidth;
+            final double titleFontSize = (cardWidth * 0.075).clamp(10.0, 14.0);
+            final double valueFontSize = (cardWidth * 0.13).clamp(16.0, 24.0);
+            final double iconSize = (cardWidth * 0.22).clamp(24.0, 40.0);
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white70,
-                      fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(
-                      fontSize: 24,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold),
+                Icon(icon,
+                    size: iconSize, color: Colors.white.withValues(alpha: 0.4)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: titleFontSize,
+                            color: Colors.white70,
+                            fontWeight: FontWeight.bold),
+                      ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          value,
+                          maxLines: 1,
+                          style: TextStyle(
+                              fontSize: valueFontSize,
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -289,9 +312,10 @@ class _StatisticsTabState extends State<StatisticsTab> {
     if (_selectedCategory == 'all_users' ||
         _selectedCategory == 'banned_users') {
       final list = _selectedCategory == 'all_users' ? _allUsers : _bannedUsers;
-      if (list.isEmpty)
+      if (list.isEmpty) {
         return const Padding(
             padding: EdgeInsets.all(32), child: Text('لا توجد بيانات لعرضها.'));
+      }
 
       return DataTable(
         headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),
@@ -327,9 +351,10 @@ class _StatisticsTabState extends State<StatisticsTab> {
     } else {
       final list =
           _selectedCategory == 'all_reports' ? _allReports : _pendingReports;
-      if (list.isEmpty)
+      if (list.isEmpty) {
         return const Padding(
             padding: EdgeInsets.all(32), child: Text('لا توجد بيانات لعرضها.'));
+      }
 
       return DataTable(
         headingRowColor: WidgetStateProperty.all(Colors.blueGrey[50]),

@@ -189,7 +189,7 @@ class _NotificationsTabState extends State<NotificationsTab> {
 
     setState(() => _isSendingAll = true);
     try {
-      // ✅ نرسل لكل توكن مسجل في قاعدة البيانات، لا نعتمد على اشتراك topic.
+      // ✅ الأولوية للموضوع العام: طلب واحد بدل طلب لكل توكن.
       final rows = await Supabase.instance.client
           .from('users')
           .select('push_token')
@@ -206,11 +206,12 @@ class _NotificationsTabState extends State<NotificationsTab> {
       int sent = 0;
       int failed = 0;
 
-      if (tokens.isEmpty) {
-        // لا توكنات مسجلة: نرجع إلى الموضوع العام كخيار أخير.
+      try {
+        // إرسال واحد إلى موضوع all (فوري تقريبًا).
         await _sendPushNotification(title: title, message: message);
-        sent = 1;
-      } else {
+        sent = tokens.isEmpty ? 1 : tokens.length;
+      } catch (e) {
+        // احتياط: إرسال مباشر لكل توكن إن فشل الموضوع.
         for (final token in tokens) {
           try {
             await _sendPushNotification(
@@ -219,10 +220,9 @@ class _NotificationsTabState extends State<NotificationsTab> {
               targetToken: token,
             );
             sent++;
-          } catch (e) {
+          } catch (_) {
             failed++;
           }
-          await Future.delayed(const Duration(milliseconds: 80));
         }
       }
 
